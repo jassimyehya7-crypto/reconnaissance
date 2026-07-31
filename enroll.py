@@ -29,6 +29,12 @@ TARGET_SAMPLES = 30
 CASCADE = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
+if CASCADE.empty():
+    sys.exit(
+        "Fichier de detection de visage introuvable.\n"
+        "Installe une version 4.x d'OpenCV :\n"
+        "    pip install -r requirements.txt"
+    )
 
 
 def detect_largest_face(gray):
