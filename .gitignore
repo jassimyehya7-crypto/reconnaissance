@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 known_face.pkl
 face_model.yml
+known_face.npz
+models/

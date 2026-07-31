@@ -1,15 +1,15 @@
 """
-recognize.py — Etape 2 : reconnaissance en direct (OpenCV pur, sans dlib).
+recognize.py — Etape 2 : reconnaissance en direct (YuNet + SFace).
 
-Ouvre la webcam et dessine un carre qui "scanne" ta tete :
-    - VERT  si le visage correspond a ton profil (face_model.yml)
+Ouvre la webcam et dessine un carre qui "scanne" chaque visage :
+    - VERT  si le visage correspond a ton profil (known_face.npz)
     - ROUGE sinon (visage inconnu)
 
-Lance d'abord `python enroll.py` pour creer ton modele.
+On compare l'empreinte 128-D du visage a celles enregistrees, par
+similarite cosinus : PLUS le score est HAUT, plus ca te ressemble.
+"c'est moi" si le meilleur score depasse le seuil.
 
-Le modele LBPH donne une "distance" (confidence) : plus elle est BASSE,
-plus le visage ressemble au tien. On decide "c'est moi" si la distance est
-sous le seuil THRESHOLD.
+Lance d'abord `python enroll.py`.
 
 Commandes :
     +/-       ajuster le seuil (sensibilite)
@@ -22,43 +22,39 @@ import time
 import cv2
 import numpy as np
 
-MODEL_PATH = "face_model.yml"
+import face_utils
+
+PROFILE_PATH = "known_face.npz"
 CAM_INDEX = 0
-FACE_SIZE = (200, 200)
-# Distance LBPH sous laquelle on considere "c'est moi".
-# Plus bas = plus strict. Typiquement entre 40 et 80 selon ta camera/lumiere.
-THRESHOLD = 65.0
 
 GREEN = (0, 200, 0)
 RED = (0, 0, 255)
 
-CASCADE = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-)
-if CASCADE.empty():
-    sys.exit(
-        "Fichier de detection de visage introuvable.\n"
-        "Installe une version 4.x d'OpenCV :\n"
-        "    pip install -r requirements.txt"
-    )
 
-
-def load_model():
-    recognizer = cv2.face.LBPHFaceRecognizer_create()
+def load_profile():
     try:
-        recognizer.read(MODEL_PATH)
-    except cv2.error:
-        sys.exit("Modele introuvable ou illisible. Lance d'abord :  python enroll.py")
-    return recognizer
+        data = np.load(PROFILE_PATH)
+        return data["embeddings"].astype(np.float32)
+    except FileNotFoundError:
+        sys.exit("Profil introuvable. Lance d'abord :  python enroll.py")
+
+
+def best_similarity(recognizer, feat, known):
+    """Meilleure similarite cosinus entre le visage courant et les empreintes connues."""
+    best = -1.0
+    for k in known:
+        s = face_utils.cosine(recognizer, feat, k.reshape(1, -1))
+        if s > best:
+            best = s
+    return best
 
 
 def draw_scan_box(frame, box, color, label, phase):
     x, y, w, h = box
-    top, left, bottom, right = y, x, y + h, x + w
+    left, top, right, bottom = x, y, x + w, y + h
     cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
 
-    # coins renforces (style "scanner")
-    c = 20
+    c = 20  # coins renforces
     for (px, py, dx, dy) in [
         (left, top, 1, 1), (right, top, -1, 1),
         (left, bottom, 1, -1), (right, bottom, -1, -1),
@@ -66,19 +62,19 @@ def draw_scan_box(frame, box, color, label, phase):
         cv2.line(frame, (px, py), (px + dx * c, py), color, 4)
         cv2.line(frame, (px, py), (px, py + dy * c), color, 4)
 
-    # ligne de scan qui va et vient
-    y_scan = int(top + (0.5 + 0.5 * np.sin(phase)) * h)
+    y_scan = int(top + (0.5 + 0.5 * np.sin(phase)) * h)  # ligne de scan animee
     cv2.line(frame, (left, y_scan), (right, y_scan), color, 1)
 
-    # etiquette
     cv2.rectangle(frame, (left, top - 30), (right, top), color, cv2.FILLED)
     cv2.putText(frame, label, (left + 6, top - 8),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
 
 
 def main():
-    recognizer = load_model()
-    threshold = THRESHOLD
+    known = load_profile()
+    detector = face_utils.make_detector()
+    recognizer = face_utils.make_recognizer()
+    threshold = face_utils.COSINE_THRESHOLD
 
     cap = cv2.VideoCapture(CAM_INDEX)
     if not cap.isOpened():
@@ -91,19 +87,24 @@ def main():
             break
 
         frame = cv2.flip(frame, 1)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
+        clean = frame.copy()
+        h, w = frame.shape[:2]
+        detector.setInputSize((w, h))
+        _, faces = detector.detect(frame)
         phase = (time.time() - start) * 4
 
-        for (x, y, w, h) in faces:
-            crop = cv2.resize(gray[y:y + h, x:x + w], FACE_SIZE)
-            label_id, distance = recognizer.predict(crop)
-            is_me = distance < threshold
-            color = GREEN if is_me else RED
-            text = f"MOI ({distance:.0f})" if is_me else f"INCONNU ({distance:.0f})"
-            draw_scan_box(frame, (x, y, w, h), color, text, phase)
+        if faces is not None:
+            for face_row in faces:
+                aligned = recognizer.alignCrop(clean, face_row)
+                feat = recognizer.feature(aligned)
+                score = best_similarity(recognizer, feat, known)
+                is_me = score >= threshold
+                color = GREEN if is_me else RED
+                text = f"MOI ({score:.2f})" if is_me else f"INCONNU ({score:.2f})"
+                box = face_row[:4].astype(int)
+                draw_scan_box(frame, box, color, text, phase)
 
-        cv2.putText(frame, f"Seuil: {threshold:.0f}  (+/- pour ajuster, Q pour quitter)",
+        cv2.putText(frame, f"Seuil: {threshold:.2f}  (+/- pour ajuster, Q pour quitter)",
                     (20, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         cv2.imshow("Reconnaissance faciale", frame)
@@ -111,9 +112,9 @@ def main():
         if key in (ord('q'), ord('Q'), 27):
             break
         elif key in (ord('+'), ord('=')):
-            threshold = min(150.0, threshold + 2)
+            threshold = min(0.9, threshold + 0.02)
         elif key in (ord('-'), ord('_')):
-            threshold = max(10.0, threshold - 2)
+            threshold = max(0.1, threshold - 0.02)
 
     cap.release()
     cv2.destroyAllWindows()
