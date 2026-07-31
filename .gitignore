@@ -4,4 +4,5 @@ __pycache__/
 known_face.pkl
 face_model.yml
 known_face.npz
+posture.npz
 models/
