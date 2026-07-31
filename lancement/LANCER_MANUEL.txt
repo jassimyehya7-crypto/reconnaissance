@@ -1,0 +1,51 @@
+====================================================================
+ LANCER LE PROJET A LA MAIN (dans le Terminal)
+====================================================================
+
+Ouvre le Terminal, puis tape les commandes UNE PAR UNE (Entree a chaque
+fois). Ne colle jamais les lignes qui commencent par #  (ce sont des
+commentaires, pas des commandes).
+
+--------------------------------------------------------------------
+ A CHAQUE FOIS (tous les jours)
+--------------------------------------------------------------------
+
+cd ~/reconnaissance
+source venv/bin/activate
+python watch.py
+
+  -> Tu sais que c'est bon quand tu vois (venv) au debut de la ligne.
+  -> Dans la fenetre, appuie sur Q pour quitter.
+
+--------------------------------------------------------------------
+ REFAIRE UN REGLAGE (quand tu veux)
+--------------------------------------------------------------------
+
+# Re-enregistrer ton visage
+python enroll.py
+
+# Re-calibrer debout / assis
+python calibrate_posture.py
+
+# Tester juste la reconnaissance (sans posture ni alerte)
+python recognize.py
+
+--------------------------------------------------------------------
+ PREMIERE INSTALLATION (seulement si le dossier venv n'existe pas)
+--------------------------------------------------------------------
+
+cd ~/reconnaissance
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+====================================================================
+ RAPPELS
+====================================================================
+- Toujours activer le venv (source venv/bin/activate) avant de lancer.
+- Fermer les fenetres avec Q (pas la croix rouge) sinon le Terminal
+  reste bloque.
+- Une fenetre ouverte = Terminal occupe : n'y tape rien tant qu'elle
+  est ouverte.
+====================================================================
